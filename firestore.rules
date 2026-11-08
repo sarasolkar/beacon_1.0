@@ -1,0 +1,233 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isHider(huntId) {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/hunts/$(huntId)).data.hiderId == request.auth.uid;
+    }
+
+    function isParticipant(huntId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/hunts/$(huntId)/participants/$(request.auth.uid));
+    }
+
+    function isHuntMember(huntId) {
+      return isHider(huntId) || isParticipant(huntId);
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow create, update: if request.auth.uid == userId;
+      allow delete: if false;
+    }
+
+    // Collection-group hunt lookups may only return the caller's own entries.
+    match /{path=**}/participants/{participantId} {
+      allow get, list: if isAuthenticated() &&
+        resource.data.id == request.auth.uid;
+    }
+
+    match /hunts/{huntId} {
+      // Room codes are intentionally discoverable only by exact document lookup.
+      allow get: if isAuthenticated();
+      // Allow users to list only their own hunts (for the home screen query).
+      allow list: if isAuthenticated() &&
+        resource.data.hiderId == request.auth.uid;
+      allow create: if isAuthenticated() &&
+        request.resource.data.hiderId == request.auth.uid &&
+        request.resource.data.status == 'waiting';
+      allow update: if isHider(huntId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'startedAt', 'completedAt',
+          'winnerId', 'winnerName', 'winnerRole', 'referenceImageUrl'
+        ]) &&
+        (
+          (
+            resource.data.status == 'waiting' &&
+            resource.data.referenceImageUrl == null &&
+            request.resource.data.referenceImageUrl is string &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'referenceImageUrl'
+            ])
+          ) ||
+          (
+            resource.data.status == 'waiting' &&
+            request.resource.data.status == 'active' &&
+            request.resource.data.startedAt == request.time
+          ) ||
+          (
+            resource.data.status == 'active' &&
+            request.resource.data.status == 'completed' &&
+            request.resource.data.completedAt == request.time &&
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+              'winnerId', 'winnerName', 'winnerRole'
+            ])
+          ) ||
+          (
+            resource.data.status == 'active' &&
+            request.resource.data.status == 'completed' &&
+            request.resource.data.completedAt == request.time &&
+            request.resource.data.winnerRole == 'hunter' &&
+            getAfter(/databases/$(database)/documents/hunts/$(huntId)/evidence/$(request.resource.data.winnerId)).data.status == 'approved' &&
+            getAfter(/databases/$(database)/documents/hunts/$(huntId)/evidence/$(request.resource.data.winnerId)).data.hunterName == request.resource.data.winnerName &&
+            getAfter(/databases/$(database)/documents/hunts/$(huntId)/participants/$(request.resource.data.winnerId)).data.status == 'found'
+          )
+        );
+      allow delete: if isHider(huntId) &&
+        resource.data.status == 'waiting';
+
+      match /secret/target_coordinates {
+        allow read: if isHider(huntId);
+        allow create: if isAuthenticated() &&
+          getAfter(/databases/$(database)/documents/hunts/$(huntId)).data.hiderId == request.auth.uid &&
+          getAfter(/databases/$(database)/documents/hunts/$(huntId)).data.status == 'waiting';
+        allow update, delete: if isHider(huntId) &&
+          get(/databases/$(database)/documents/hunts/$(huntId)).data.status == 'waiting';
+      }
+
+      // Target location used by the app to compute distance and bearing
+      // (there are no Cloud Functions). Participants can read it only while
+      // the hunt is active.
+      match /target/location {
+        allow read: if isHider(huntId) ||
+          (isParticipant(huntId) && get(/databases/$(database)/documents/hunts/$(huntId)).data.status == 'active');
+        allow create: if isAuthenticated() &&
+          getAfter(/databases/$(database)/documents/hunts/$(huntId)).data.hiderId == request.auth.uid &&
+          getAfter(/databases/$(database)/documents/hunts/$(huntId)).data.status == 'waiting';
+        allow update, delete: if isHider(huntId) &&
+          get(/databases/$(database)/documents/hunts/$(huntId)).data.status == 'waiting';
+      }
+
+      // Hint texts, one doc each. A participant can read a hint only after its
+      // scheduled time has passed, or once they are within 30 m.
+      match /hints/{hintId} {
+        allow read: if isHider(huntId) ||
+          (
+            isParticipant(huntId) &&
+            get(/databases/$(database)/documents/hunts/$(huntId)).data.status == 'active' &&
+            (
+              request.time >= get(/databases/$(database)/documents/hunts/$(huntId)).data.startedAt +
+                duration.value(resource.data.unlockSeconds, 's') ||
+              get(/databases/$(database)/documents/hunts/$(huntId)/participants/$(request.auth.uid)).data.distanceMeters <= 30
+            )
+          );
+        allow create: if isAuthenticated() &&
+          getAfter(/databases/$(database)/documents/hunts/$(huntId)).data.hiderId == request.auth.uid &&
+          getAfter(/databases/$(database)/documents/hunts/$(huntId)).data.status == 'waiting';
+        allow update, delete: if isHider(huntId) &&
+          get(/databases/$(database)/documents/hunts/$(huntId)).data.status == 'waiting';
+      }
+
+      // The hider's reference photo, stored as bytes in Firestore (no Storage).
+      match /media/{mediaId} {
+        allow read: if isHuntMember(huntId);
+        allow create: if isAuthenticated() &&
+          mediaId == 'reference_image' &&
+          getAfter(/databases/$(database)/documents/hunts/$(huntId)).data.hiderId == request.auth.uid &&
+          getAfter(/databases/$(database)/documents/hunts/$(huntId)).data.status == 'waiting';
+        allow update, delete: if false;
+      }
+
+      match /participants/{hunterId} {
+        // A user may read their OWN participant doc even if it does not exist yet.
+        // joinRoom() checks for an existing entry before creating one; without
+        // this, that check is denied for every new joiner.
+        allow get: if isAuthenticated() && request.auth.uid == hunterId;
+        allow get, list: if isHuntMember(huntId);
+        allow create: if isAuthenticated() &&
+          request.auth.uid == hunterId &&
+          request.resource.data.id == hunterId &&
+          request.resource.data.status in ['waiting', 'active'] &&
+          request.resource.data.hintsUnlocked == 0;
+        allow update: if (
+          request.auth.uid == hunterId &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'lastActive', 'name', 'avatarUrl', 'distanceMeters'
+          ]) &&
+          (
+            request.resource.data.status == resource.data.status &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'lastActive', 'name', 'avatarUrl', 'distanceMeters'
+            ]) ||
+            request.resource.data.status == 'pendingApproval'
+          )
+        ) || (
+          isHider(huntId) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'lastActive', 'foundAt'
+          ]) &&
+          (
+            (
+              resource.data.status == 'waiting' &&
+              request.resource.data.status == 'active' &&
+              getAfter(/databases/$(database)/documents/hunts/$(huntId)).data.status == 'active' &&
+              !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+                'foundAt'
+              ])
+            ) ||
+            (
+              request.resource.data.status == 'active' &&
+              getAfter(/databases/$(database)/documents/hunts/$(huntId)/evidence/$(hunterId)).data.status == 'rejected' &&
+              !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+                'foundAt'
+              ])
+            ) ||
+            (
+              request.resource.data.status == 'found' &&
+              request.resource.data.foundAt == request.time &&
+              getAfter(/databases/$(database)/documents/hunts/$(huntId)/evidence/$(hunterId)).data.status == 'approved'
+            )
+          )
+        );
+        allow delete: if request.auth.uid == hunterId &&
+          resource.data.status == 'waiting';
+      }
+
+      match /evidence/{hunterId} {
+        allow read: if isHuntMember(huntId);
+        allow create: if isAuthenticated() &&
+          request.auth.uid == hunterId &&
+          isParticipant(huntId) &&
+          get(/databases/$(database)/documents/hunts/$(huntId)).data.status == 'active' &&
+          get(/databases/$(database)/documents/hunts/$(huntId)/participants/$(hunterId)).data.distanceMeters <= 30 &&
+          get(/databases/$(database)/documents/hunts/$(huntId)/participants/$(hunterId)).data.lastActive > request.time - duration.value(2, 'm') &&
+          request.resource.data.status == 'pending' &&
+          request.resource.data.distanceMeters <= 30;
+        allow update: if isHider(huntId) &&
+          resource.data.status == 'pending' &&
+          request.resource.data.reviewedAt == request.time &&
+          (
+            (
+              request.resource.data.status == 'approved' &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'status', 'reviewedAt'
+              ])
+            ) ||
+            (
+              request.resource.data.status == 'rejected' &&
+              request.resource.data.rejectionReason is string &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'status', 'reviewedAt', 'rejectionReason'
+              ])
+            )
+          );
+        // A hunter may resubmit after the hider rejected their answers.
+        allow update: if isAuthenticated() &&
+          request.auth.uid == hunterId &&
+          isParticipant(huntId) &&
+          get(/databases/$(database)/documents/hunts/$(huntId)).data.status == 'active' &&
+          resource.data.status == 'rejected' &&
+          request.resource.data.status == 'pending' &&
+          request.resource.data.hunterId == hunterId &&
+          request.resource.data.distanceMeters <= 30 &&
+          get(/databases/$(database)/documents/hunts/$(huntId)/participants/$(hunterId)).data.distanceMeters <= 30 &&
+          get(/databases/$(database)/documents/hunts/$(huntId)/participants/$(hunterId)).data.lastActive > request.time - duration.value(2, 'm');
+        allow delete: if false;
+      }
+    }
+  }
+}

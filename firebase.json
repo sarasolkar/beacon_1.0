@@ -1,0 +1,43 @@
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "hosting": {
+    "public": "build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "beacon-407bc",
+          "appId": "1:79548041421:android:057b35a654e2a550fc4184",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "beacon-407bc",
+          "configurations": {
+            "android": "1:79548041421:android:057b35a654e2a550fc4184",
+            "ios": "1:79548041421:ios:f7cd9b1cefc1cce8fc4184",
+            "macos": "1:79548041421:ios:f7cd9b1cefc1cce8fc4184",
+            "web": "1:79548041421:web:d473ed928d20bd93fc4184",
+            "windows": "1:79548041421:web:20f2ab3cd3fbaaa8fc4184"
+          }
+        }
+      }
+    }
+  }
+}

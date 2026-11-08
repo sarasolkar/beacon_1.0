@@ -1,0 +1,67 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isHider(huntId) {
+      return isAuthenticated() &&
+        firestore.exists(/databases/(default)/documents/hunts/$(huntId)) &&
+        firestore.get(/databases/(default)/documents/hunts/$(huntId)).data.hiderId ==
+          request.auth.uid;
+    }
+
+    function isHuntMember(huntId) {
+      return isHider(huntId) ||
+        (isAuthenticated() &&
+          firestore.exists(
+            /databases/(default)/documents/hunts/$(huntId)/participants/$(request.auth.uid)
+          ));
+    }
+
+    function isActiveHunterWithinRange(huntId, hunterId) {
+      let hunt = firestore.get(
+        /databases/(default)/documents/hunts/$(huntId)
+      ).data;
+      let participant = firestore.get(
+        /databases/(default)/documents/hunts/$(huntId)/participants/$(hunterId)
+      ).data;
+      return isAuthenticated() &&
+        request.auth.uid == hunterId &&
+        hunt.status == 'active' &&
+        participant.distanceMeters <= 30 &&
+        participant.lastActive > request.time - duration.value(2, 'm');
+    }
+
+    function isImageUnderMaxSize() {
+      return request.resource != null &&
+        request.resource.contentType.matches('image/.*') &&
+        request.resource.size < 5 * 1024 * 1024;
+    }
+
+    match /hunts/{huntId}/reference/reference.jpg {
+      allow read: if isHuntMember(huntId);
+      allow create: if isHider(huntId) &&
+        firestore.get(/databases/(default)/documents/hunts/$(huntId)).data.status ==
+          'waiting' &&
+        isImageUnderMaxSize();
+      allow update: if false;
+      allow delete: if isHider(huntId) &&
+        firestore.get(/databases/(default)/documents/hunts/$(huntId)).data.status ==
+          'waiting';
+    }
+
+    match /hunts/{huntId}/evidence/{hunterId}/evidence.jpg {
+      allow read: if isHuntMember(huntId);
+      allow create: if isActiveHunterWithinRange(huntId, hunterId) &&
+        isImageUnderMaxSize();
+      allow update: if isActiveHunterWithinRange(huntId, hunterId) &&
+        firestore.get(
+          /databases/(default)/documents/hunts/$(huntId)/evidence/$(hunterId)
+        ).data.status == 'rejected' &&
+        isImageUnderMaxSize();
+      allow delete: if false;
+    }
+  }
+}

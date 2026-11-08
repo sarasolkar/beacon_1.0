@@ -65,7 +65,7 @@ class HintItem {
       HintItem(
         id: 'hint_2',
         title: 'Hint 2',
-        distanceLabel: 'After 2 minutes',
+        distanceLabel: 'After 5 minutes',
         distanceMeters: 30,
         unlockDistanceMeters: 30.0,
         text: '',
@@ -73,7 +73,7 @@ class HintItem {
       HintItem(
         id: 'hint_3',
         title: 'Hint 3',
-        distanceLabel: 'After 3 minutes',
+        distanceLabel: 'After 10 minutes',
         distanceMeters: 30,
         unlockDistanceMeters: 30.0,
         text: '',

@@ -827,7 +827,7 @@ class _HuntModeScreenState extends State<HuntModeScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Hints unlock at 1, 2, and 3 minutes after the hunt starts. '
+                  'Hints unlock at 1, 5, and 10 minutes after the hunt starts. '
                   'Within 30m, all remaining hints unlock immediately.',
                   style: AppTextStyles.bodySmall,
                 ),

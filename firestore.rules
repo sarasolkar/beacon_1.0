@@ -146,12 +146,24 @@ service cloud.firestore {
         allow update: if (
           request.auth.uid == hunterId &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status', 'lastActive', 'name', 'avatarUrl', 'distanceMeters'
+            'status', 'lastActive', 'name', 'avatarUrl', 'distanceMeters',
+            'hintsUnlocked'
           ]) &&
+          (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+              'hintsUnlocked'
+            ]) ||
+            (
+              request.resource.data.hintsUnlocked is int &&
+              request.resource.data.hintsUnlocked >= resource.data.hintsUnlocked &&
+              request.resource.data.hintsUnlocked <= 3
+            )
+          ) &&
           (
             request.resource.data.status == resource.data.status &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              'lastActive', 'name', 'avatarUrl', 'distanceMeters'
+              'lastActive', 'name', 'avatarUrl', 'distanceMeters',
+              'hintsUnlocked'
             ]) ||
             request.resource.data.status == 'pendingApproval'
           )

@@ -9,7 +9,6 @@ import '../models/hunt_room.dart';
 import '../models/participant.dart';
 import '../models/hint_item.dart';
 import '../models/hint_progress.dart';
-import '../core/game_config.dart';
 import 'location_service.dart';
 import 'hunt_repository.dart';
 
@@ -40,6 +39,7 @@ class FirestoreHuntRepository implements HuntRepository {
   final Map<String, List<String>> _hintTextCache = {};
   final Map<String, DateTime> _lastDistanceWrite = {};
   final Map<String, bool> _lastZoneState = {};
+  final Map<String, int> _hintsSynced = {};
 
   FirestoreHuntRepository({FirebaseFirestore? firestore})
     : _firestore = firestore ?? FirebaseFirestore.instance;
@@ -138,7 +138,9 @@ class FirestoreHuntRepository implements HuntRepository {
       batch.set(huntRef.collection('hints').doc('hint_$i'), {
         'index': i,
         'text': hunt.hints[i].text,
-        'unlockSeconds': (i + 1) * GameConfig.hintUnlockInterval.inSeconds,
+        'unlockSeconds': HintProgress
+            .unlockSchedule[min(i, HintProgress.unlockSchedule.length - 1)]
+            .inSeconds,
       });
     }
 
@@ -447,12 +449,14 @@ class FirestoreHuntRepository implements HuntRepository {
     _HuntInfo info,
     bool withinZone,
   ) async {
+    final texts = _hintTextCache.putIfAbsent(code, () => <String>[]);
+    // Hints already read stay unlocked even if the hunter later leaves the zone.
     final progress = HintProgress.calculate(
       startedAt: info.startedAt,
       isWithinSearchZone: withinZone,
       totalHints: info.totalHints,
+      alreadyUnlocked: texts.length,
     );
-    final texts = _hintTextCache.putIfAbsent(code, () => <String>[]);
     while (texts.length < progress.unlockedCount) {
       try {
         final snap = await _huntDoc(
@@ -469,6 +473,22 @@ class FirestoreHuntRepository implements HuntRepository {
       }
     }
     return List<String>.from(texts.take(progress.unlockedCount));
+  }
+
+  /// Records how many hints this hunter has unlocked so the hider's dashboard
+  /// ("x/3 Hints Unlocked") stays accurate. It only ever increases.
+  Future<void> _syncHintsUnlocked(
+    String code,
+    String hunterId,
+    int count,
+  ) async {
+    if (count <= (_hintsSynced[code] ?? 0)) return;
+    _hintsSynced[code] = count; // set first so a failure is not retried forever
+    try {
+      await _participants(code).doc(hunterId).update({'hintsUnlocked': count});
+    } catch (error) {
+      debugPrint('Could not sync hints unlocked: $error');
+    }
   }
 
   @override
@@ -512,6 +532,7 @@ class FirestoreHuntRepository implements HuntRepository {
     }
 
     final unlocked = await _readUnlockedHints(code, info, withinZone);
+    await _syncHintsUnlocked(code, hunterId, unlocked.length);
     return HunterProximity(
       distanceMeters: distance,
       bearingDegrees: bearing,
@@ -531,11 +552,13 @@ class FirestoreHuntRepository implements HuntRepository {
     final me = await _participants(code).doc(hunterId).get();
     if (!me.exists) throw StateError('Join this hunt before requesting hints.');
     final distance = (me.data()?['distanceMeters'] as num?)?.toDouble();
-    return _readUnlockedHints(
+    final unlocked = await _readUnlockedHints(
       code,
       info,
       HintProgress.isWithinSearchZone(distance),
     );
+    await _syncHintsUnlocked(code, hunterId, unlocked.length);
+    return unlocked;
   }
 
   // ── Submit evidence (Phase 3: Q&A Verification) ──────────────────────────

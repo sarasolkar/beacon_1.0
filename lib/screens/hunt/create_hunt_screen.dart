@@ -727,7 +727,7 @@ class _CreateHuntScreenState extends State<CreateHuntScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Hunters receive three timed hints after 1, 2, and 3 minutes. '
+                  'Hunters receive three timed hints after 1, 5, and 10 minutes. '
                   'Entering the 30m radius unlocks all remaining hints.',
                   style: AppTextStyles.bodySmall.copyWith(
                     color: AppColors.textPrimary,
@@ -1154,7 +1154,7 @@ class _CreateHuntScreenState extends State<CreateHuntScreen> {
         Text('Step 3: Timed Hints', style: AppTextStyles.titleLarge),
         const SizedBox(height: 6),
         Text(
-          'Provide three hints. They unlock after 1, 2, and 3 minutes, or all at '
+          'Provide three hints. They unlock after 1, 5, and 10 minutes, or all at '
           'once when the Hunter enters the 30m radius.',
           style: AppTextStyles.bodyMedium,
         ),
@@ -1176,7 +1176,7 @@ class _CreateHuntScreenState extends State<CreateHuntScreen> {
         _buildHintCard(
           index: 1,
           title: 'Hint 2',
-          distanceLabel: 'After 2 minutes',
+          distanceLabel: 'After 5 minutes',
           badgeColor: const Color(0xFFF77F00),
           badgeBg: const Color(0xFFFFF3E6),
           icon: Icons.filter_2_rounded,
@@ -1189,7 +1189,7 @@ class _CreateHuntScreenState extends State<CreateHuntScreen> {
         _buildHintCard(
           index: 2,
           title: 'Hint 3',
-          distanceLabel: 'After 3 minutes',
+          distanceLabel: 'After 10 minutes',
           badgeColor: AppColors.primary,
           badgeBg: AppColors.primaryLight,
           icon: Icons.filter_3_rounded,
@@ -1368,7 +1368,7 @@ class _CreateHuntScreenState extends State<CreateHuntScreen> {
               _reviewItem(
                 Icons.lightbulb_outline_rounded,
                 'Clues Provided',
-                '3 timed hints (1, 2, 3 minutes)',
+                '3 timed hints (1, 5, 10 minutes)',
               ),
               const SizedBox(height: 10),
               _reviewItem(
@@ -1430,9 +1430,9 @@ class _CreateHuntScreenState extends State<CreateHuntScreen> {
               const SizedBox(height: 10),
               _clueBullet('Hint 1 • 1 minute', _hintControllers[0].text),
               const SizedBox(height: 6),
-              _clueBullet('Hint 2 • 2 minutes', _hintControllers[1].text),
+              _clueBullet('Hint 2 • 5 minutes', _hintControllers[1].text),
               const SizedBox(height: 6),
-              _clueBullet('Hint 3 • 3 minutes', _hintControllers[2].text),
+              _clueBullet('Hint 3 • 10 minutes', _hintControllers[2].text),
             ],
           ),
         ),

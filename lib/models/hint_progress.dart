@@ -9,6 +9,13 @@ class HintProgress {
     required this.timeUntilNextHint,
   });
 
+  /// When each hint unlocks, measured from the start of the hunt.
+  static const List<Duration> unlockSchedule = [
+    Duration(minutes: 1),
+    Duration(minutes: 5),
+    Duration(minutes: 10),
+  ];
+
   static bool isWithinSearchZone(double? distanceMeters) =>
       distanceMeters != null &&
       distanceMeters <= GameConfig.searchZoneRadiusMeters;
@@ -25,26 +32,37 @@ class HintProgress {
     }
 
     final currentTime = now ?? DateTime.now();
-    final scheduledUnlocks = startedAt == null
-        ? 0
-        : (currentTime.difference(startedAt).inSeconds ~/
-                  GameConfig.hintUnlockInterval.inSeconds)
-              .clamp(0, totalHints)
-              .toInt();
+
+    var scheduledUnlocks = 0;
+    if (startedAt != null) {
+      final elapsed = currentTime.difference(startedAt);
+      for (var i = 0; i < unlockSchedule.length && i < totalHints; i++) {
+        if (elapsed >= unlockSchedule[i]) scheduledUnlocks = i + 1;
+      }
+    }
+
+    final zoneUnlocks = isWithinSearchZone && startedAt != null
+        ? totalHints
+        : 0;
     final unlocked = [
       scheduledUnlocks,
-      isWithinSearchZone && startedAt != null ? totalHints : 0,
+      zoneUnlocks,
       alreadyUnlocked,
     ].reduce((a, b) => a > b ? a : b).clamp(0, totalHints).toInt();
-    final remaining = startedAt
-        ?.add(GameConfig.hintUnlockInterval * (scheduledUnlocks + 1))
-        .difference(currentTime);
+
+    Duration? timeUntilNext;
+    if (startedAt != null &&
+        unlocked < totalHints &&
+        unlocked < unlockSchedule.length) {
+      final remaining = startedAt
+          .add(unlockSchedule[unlocked])
+          .difference(currentTime);
+      timeUntilNext = remaining.isNegative ? Duration.zero : remaining;
+    }
 
     return HintProgress(
       unlockedCount: unlocked,
-      timeUntilNextHint: unlocked < totalHints && remaining != null
-          ? (remaining.isNegative ? Duration.zero : remaining)
-          : null,
+      timeUntilNextHint: timeUntilNext,
     );
   }
 }
